@@ -13,7 +13,7 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore, collection, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getFirestore, collection, doc, getDoc, setDoc, addDoc, getDocs, query, where, serverTimestamp, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
         const firebaseConfig = {
             apiKey: "AIzaSyDx89p7BdJyq2gn5M84SQwH0ZWO6x4n8c4",
@@ -30,10 +30,62 @@
 
         window.firebaseAuth = auth;
         window.firebaseDb = db;
-        window.firebaseModules = { signInWithEmailAndPassword, signOut, onAuthStateChanged, doc, getDoc };
+        window.firebaseModules = { 
+            signInWithEmailAndPassword, 
+            signOut, 
+            onAuthStateChanged, 
+            doc, 
+            getDoc,
+            setDoc,
+            addDoc,
+            getDocs,
+            collection,
+            query,
+            where,
+            serverTimestamp,
+            onSnapshot
+        };
         window.firebaseReady = true;
         
         console.log('✅ Firebase inicializado');
+        
+        // Sistema de sincronización offline/online
+        window.syncQueue = [];
+        window.isOnline = navigator.onLine;
+        
+        // Actualizar estado de conexión
+        function updateConnectionStatus() {
+            const banner = document.getElementById('demoBanner');
+            if (banner) {
+                if (window.isOnline) {
+                    banner.innerHTML = '☁️ En línea - Sincronizado';
+                    banner.style.background = 'linear-gradient(90deg, var(--accent-green), #00b894)';
+                } else {
+                    banner.innerHTML = '📴 Modo Offline - Los datos se sincronizarán cuando haya conexión';
+                    banner.style.background = 'linear-gradient(90deg, #f39c12, #e67e22)';
+                }
+            }
+        }
+        
+        // Eventos de conexión
+        window.addEventListener('online', async () => {
+            window.isOnline = true;
+            updateConnectionStatus();
+            console.log('✅ Conexión restaurada - Sincronizando...');
+            
+            // Sincronizar datos pendientes
+            if (window.syncPendingData) {
+                await window.syncPendingData();
+            }
+        });
+        
+        window.addEventListener('offline', () => {
+            window.isOnline = false;
+            updateConnectionStatus();
+            console.log('📴 Sin conexión - Modo offline activado');
+        });
+        
+        window.updateConnectionStatus = updateConnectionStatus;
     </script>
     
     <style>
@@ -987,86 +1039,175 @@
             <div id="screenAdmin" class="screen">
                 <div class="section-title">⚙️ Administrador</div>
                 
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">📅 Ventas de Hoy</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
-                            <div style="font-size: 12px; color: var(--text-secondary);">VENTAS HOY</div>
-                            <div style="font-size: 28px; font-weight: 700; color: var(--accent-green);" id="ventasHoy">XCG 0</div>
+                <!-- TABS DE CONFIGURACIÓN -->
+                <div style="display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto;">
+                    <button class="btn btn-secondary" id="tabDashboard" onclick="cambiarTabAdmin('dashboard')" style="flex: 1; min-width: 120px; background: var(--accent-orange);">📊 Dashboard</button>
+                    <button class="btn btn-secondary" id="tabConfig" onclick="cambiarTabAdmin('config')" style="flex: 1; min-width: 120px;">⚙️ Configuración</button>
+                    <button class="btn btn-secondary" id="tabPrecios" onclick="cambiarTabAdmin('precios')" style="flex: 1; min-width: 120px;">💰 Precios</button>
+                </div>
+
+                <!-- TAB: DASHBOARD -->
+                <div id="adminDashboard" class="admin-tab">
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">📅 Ventas de Hoy</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">VENTAS HOY</div>
+                                <div style="font-size: 28px; font-weight: 700; color: var(--accent-green);" id="ventasHoy">XCG 0</div>
+                            </div>
+                            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">TRANSACCIONES</div>
+                                <div style="font-size: 28px; font-weight: 700; color: var(--accent-orange);" id="transaccionesHoy">0</div>
+                            </div>
                         </div>
                         <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
-                            <div style="font-size: 12px; color: var(--text-secondary);">TRANSACCIONES</div>
-                            <div style="font-size: 28px; font-weight: 700; color: var(--accent-orange);" id="transaccionesHoy">0</div>
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">GANANCIA HOY</div>
+                            <div style="font-size: 32px; font-weight: 700; color: var(--accent-green);" id="gananciaHoy">XCG 0</div>
                         </div>
                     </div>
-                    <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">GANANCIA HOY</div>
-                        <div style="font-size: 32px; font-weight: 700; color: var(--accent-green);" id="gananciaHoy">XCG 0</div>
-                    </div>
-                </div>
 
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">📊 Resumen del Mes</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                        <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
-                            <div style="font-size: 12px; color: var(--text-secondary);">VENTAS TOTALES</div>
-                            <div style="font-size: 24px; font-weight: 700; color: var(--accent-green);" id="adminTotalVentas">XCG 0</div>
-                        </div>
-                        <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
-                            <div style="font-size: 12px; color: var(--text-secondary);">GANANCIAS</div>
-                            <div style="font-size: 24px; font-weight: 700; color: var(--accent-orange);" id="adminGanancias">XCG 0</div>
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">📊 Resumen del Mes</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">VENTAS TOTALES</div>
+                                <div style="font-size: 24px; font-weight: 700; color: var(--accent-green);" id="adminTotalVentas">XCG 0</div>
+                            </div>
+                            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
+                                <div style="font-size: 12px; color: var(--text-secondary);">GANANCIAS</div>
+                                <div style="font-size: 24px; font-weight: 700; color: var(--accent-orange);" id="adminGanancias">XCG 0</div>
+                            </div>
                         </div>
                     </div>
-                    <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px;">
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">PROMEDIO POR DÍA</div>
-                        <div style="font-size: 20px; font-weight: 700;" id="promedioDia">XCG 0</div>
+
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">📄 Generar Reportes</h3>
+                        <button class="btn btn-primary" onclick="generarReporteDiario()" style="margin-bottom: 10px; font-size: 16px; padding: 18px;">
+                            📊 REPORTE DE HOY
+                        </button>
+                        <button class="btn btn-primary" onclick="generarReporteMensual()" style="margin-bottom: 10px; font-size: 16px; padding: 18px;">
+                            📅 REPORTE DEL MES
+                        </button>
                     </div>
                 </div>
 
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">🏆 Productos Más Vendidos del Mes</h3>
-                    <div id="topProductosChart" style="margin-bottom: 15px;"></div>
-                    <div id="topProductosDetalle"></div>
+                <!-- TAB: CONFIGURACIÓN -->
+                <div id="adminConfig" class="admin-tab" style="display: none;">
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">🏪 Datos del Negocio</h3>
+                        <div class="input-group">
+                            <label>Nombre del Negocio</label>
+                            <input type="text" id="configNombre" value="Russos Distribution" placeholder="Nombre del negocio">
+                        </div>
+                        <div class="input-group">
+                            <label>RIF / NIT</label>
+                            <input type="text" id="configRif" placeholder="J-12345678-9">
+                        </div>
+                        <div class="input-group">
+                            <label>Teléfono</label>
+                            <input type="tel" id="configTelefono" placeholder="+297 123 4567">
+                        </div>
+                        <div class="input-group">
+                            <label>Dirección</label>
+                            <input type="text" id="configDireccion" placeholder="Calle Principal, Curazao">
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">🖨️ Configuración de Impresora</h3>
+                        <div class="input-group">
+                            <label style="display: flex; align-items: center; justify-content: space-between;">
+                                <span>Imprimir automáticamente</span>
+                                <input type="checkbox" id="configAutoPrint" style="width: auto;">
+                            </label>
+                        </div>
+                        <div class="input-group">
+                            <label>Tamaño de papel</label>
+                            <select id="configPaperSize">
+                                <option value="58">58mm (Pequeño)</option>
+                                <option value="80" selected>80mm (Estándar)</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Copias por venta</label>
+                            <select id="configCopies">
+                                <option value="1" selected>1 copia</option>
+                                <option value="2">2 copias</option>
+                                <option value="3">3 copias</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-secondary" onclick="vistaPrevia Ticket()" style="margin-top: 10px;">
+                            👁️ Vista Previa de Ticket
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">🎨 Apariencia</h3>
+                        <div class="input-group">
+                            <label>Tamaño de texto</label>
+                            <select id="configTextSize" onchange="aplicarTamañoTexto()">
+                                <option value="small">Pequeño</option>
+                                <option value="medium" selected>Mediano</option>
+                                <option value="large">Grande</option>
+                                <option value="xlarge">Extra Grande</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Color principal</label>
+                            <select id="configColorTheme" onchange="aplicarTema()">
+                                <option value="orange" selected>Naranja (Predeterminado)</option>
+                                <option value="blue">Azul</option>
+                                <option value="green">Verde</option>
+                                <option value="purple">Morado</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">☁️ Sincronización</h3>
+                        <div style="background: var(--bg-secondary); padding: 15px; border-radius: 10px; margin-bottom: 15px;">
+                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 5px;">ESTADO</div>
+                            <div style="font-size: 18px; font-weight: 700;" id="syncStatus">☁️ Sincronizado</div>
+                        </div>
+                        <div class="input-group">
+                            <label style="display: flex; align-items: center; justify-content: space-between;">
+                                <span>Sincronización automática</span>
+                                <input type="checkbox" id="configAutoSync" checked style="width: auto;">
+                            </label>
+                            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">
+                                Cuando está activado, los datos se sincronizan automáticamente cuando hay internet
+                            </p>
+                        </div>
+                        <button class="btn btn-primary" onclick="sincronizarManual()" style="margin-top: 10px;">
+                            🔄 Sincronizar Ahora
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <button class="btn btn-primary" onclick="guardarConfiguracion()" style="font-size: 18px; padding: 20px;">
+                            💾 GUARDAR CONFIGURACIÓN
+                        </button>
+                    </div>
                 </div>
 
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">📈 Ventas por Categoría</h3>
-                    <div id="categoriaChart"></div>
-                </div>
+                <!-- TAB: PRECIOS -->
+                <div id="adminPrecios" class="admin-tab" style="display: none;">
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">💰 Editar Precios</h3>
+                        <input type="text" class="search-box" id="searchAdminProducts" placeholder="Buscar producto para editar..." inputmode="search" onkeyup="buscarProductosAdmin()">
+                        <div id="adminProductsList"></div>
+                    </div>
 
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">📄 Generar Reportes</h3>
-                    <button class="btn btn-primary" onclick="generarReporteDiario()" style="margin-bottom: 10px; font-size: 16px; padding: 18px;">
-                        📊 REPORTE DE HOY
-                    </button>
-                    <button class="btn btn-primary" onclick="generarReporteMensual()" style="margin-bottom: 10px; font-size: 16px; padding: 18px;">
-                        📅 REPORTE DEL MES
-                    </button>
-                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 10px;">
-                        Los reportes se descargan en formato texto con todas las ventas y estadísticas
-                    </p>
-                </div>
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">📦 Stock Bajo</h3>
+                        <div id="lowStockList"></div>
+                    </div>
 
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">💳 Ventas a Crédito Pendientes</h3>
-                    <div id="creditosPendientes"></div>
-                </div>
-
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">💰 Editar Precios</h3>
-                    <input type="text" class="search-box" id="searchAdminProducts" placeholder="Buscar producto para editar..." inputmode="search">
-                    <div id="adminProductsList"></div>
-                </div>
-
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">📦 Stock Bajo</h3>
-                    <div id="lowStockList"></div>
-                </div>
-
-                <div class="card">
-                    <h3 style="margin-bottom: 15px;">🗑️ Gestión de Datos</h3>
-                    <button class="btn btn-secondary" onclick="exportarDatos()" style="margin-bottom: 10px;">📥 Exportar Todo</button>
-                    <button class="btn btn-secondary" onclick="borrarDatos()">🗑️ Borrar Todos los Datos</button>
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px;">🗑️ Gestión de Datos</h3>
+                        <button class="btn btn-secondary" onclick="exportarDatos()" style="margin-bottom: 10px;">📥 Exportar Todo</button>
+                        <button class="btn btn-secondary" onclick="borrarDatos()">🗑️ Borrar Todos los Datos</button>
+                    </div>
                 </div>
             </div>
 
@@ -1438,6 +1579,11 @@
                 console.log('👑 ADMIN - Mostrando Admin');
                 document.getElementById('btnAdmin').style.display = 'flex';
                 document.getElementById('navBar').style.gridTemplateColumns = 'repeat(5, 1fr)';
+            }
+            
+            // Actualizar estado de conexión
+            if (window.updateConnectionStatus) {
+                window.updateConnectionStatus();
             }
             
             // Inicializar sistema
@@ -2509,12 +2655,18 @@ Promedio por venta:  XCG ${Math.round(totalVentas / ventasMes.length).toLocaleSt
                 credito: metodo === 'Crédito' ? {
                     fechaVencimiento: fechaVencimiento,
                     pagado: false
-                } : null
+                } : null,
+                synced: false  // Flag para sincronización offline
             };
 
             const ventas = getVentas();
             ventas.push(venta);
             saveVentas(ventas);
+
+            // Intentar sincronizar si hay internet
+            if (window.isOnline && window.syncPendingData) {
+                window.syncPendingData();
+            }
 
             // Mostrar factura
             mostrarFactura(venta);
@@ -2949,6 +3101,17 @@ Promedio por venta:  XCG ${Math.round(totalVentas / ventasMes.length).toLocaleSt
                 console.log('✅ Contraseña inicializada: 1234 (SHA-256)');
             }
             
+            // Cargar y aplicar configuración de apariencia
+            const userConfig = JSON.parse(localStorage.getItem('russos_config') || '{}');
+            if (userConfig.textSize) {
+                document.getElementById('configTextSize').value = userConfig.textSize;
+                aplicarTamañoTexto();
+            }
+            if (userConfig.colorTheme) {
+                document.getElementById('configColorTheme').value = userConfig.colorTheme;
+                aplicarTema();
+            }
+            
             renderProductos();
             renderQuickProducts();
             actualizarEstadisticas();
@@ -2956,6 +3119,244 @@ Promedio por venta:  XCG ${Math.round(totalVentas / ventasMes.length).toLocaleSt
             
             // Actualizar fecha cada minuto
             setInterval(actualizarFechaHeader, 60000);
+        }
+
+        // ========================================
+        // NUEVAS FUNCIONES DE CONFIGURACIÓN
+        // ========================================
+
+        // Cambiar tabs en Admin
+        function cambiarTabAdmin(tab) {
+            // Ocultar todos los tabs
+            document.querySelectorAll('.admin-tab').forEach(t => t.style.display = 'none');
+            document.querySelectorAll('[id^="tab"]').forEach(btn => {
+                btn.style.background = '';
+            });
+
+            // Mostrar tab seleccionado
+            if (tab === 'dashboard') {
+                document.getElementById('adminDashboard').style.display = 'block';
+                document.getElementById('tabDashboard').style.background = 'var(--accent-orange)';
+                renderAdminDashboard();
+            } else if (tab === 'config') {
+                document.getElementById('adminConfig').style.display = 'block';
+                document.getElementById('tabConfig').style.background = 'var(--accent-orange)';
+                cargarConfiguracion();
+            } else if (tab === 'precios') {
+                document.getElementById('adminPrecios').style.display = 'block';
+                document.getElementById('tabPrecios').style.background = 'var(--accent-orange)';
+                renderAdminProducts();
+            }
+        }
+
+        // Cargar configuración guardada
+        function cargarConfiguracion() {
+            const config = JSON.parse(localStorage.getItem('russos_config') || '{}');
+            
+            document.getElementById('configNombre').value = config.nombre || 'Russos Distribution';
+            document.getElementById('configRif').value = config.rif || '';
+            document.getElementById('configTelefono').value = config.telefono || '';
+            document.getElementById('configDireccion').value = config.direccion || '';
+            document.getElementById('configAutoPrint').checked = config.autoPrint !== false;
+            document.getElementById('configPaperSize').value = config.paperSize || '80';
+            document.getElementById('configCopies').value = config.copies || '1';
+            document.getElementById('configTextSize').value = config.textSize || 'medium';
+            document.getElementById('configColorTheme').value = config.colorTheme || 'orange';
+            document.getElementById('configAutoSync').checked = config.autoSync !== false;
+        }
+
+        // Guardar configuración
+        function guardarConfiguracion() {
+            const config = {
+                nombre: document.getElementById('configNombre').value,
+                rif: document.getElementById('configRif').value,
+                telefono: document.getElementById('configTelefono').value,
+                direccion: document.getElementById('configDireccion').value,
+                autoPrint: document.getElementById('configAutoPrint').checked,
+                paperSize: document.getElementById('configPaperSize').value,
+                copies: document.getElementById('configCopies').value,
+                textSize: document.getElementById('configTextSize').value,
+                colorTheme: document.getElementById('configColorTheme').value,
+                autoSync: document.getElementById('configAutoSync').checked
+            };
+            
+            localStorage.setItem('russos_config', JSON.stringify(config));
+            
+            // Aplicar cambios inmediatamente
+            aplicarTamañoTexto();
+            aplicarTema();
+            
+            alert('✅ Configuración guardada correctamente');
+        }
+
+        // Aplicar tamaño de texto
+        function aplicarTamañoTexto() {
+            const size = document.getElementById('configTextSize').value;
+            const root = document.documentElement;
+            
+            const sizes = {
+                small: '12px',
+                medium: '14px',
+                large: '16px',
+                xlarge: '18px'
+            };
+            
+            root.style.setProperty('--font-size-base', sizes[size] || sizes.medium);
+        }
+
+        // Aplicar tema de color
+        function aplicarTema() {
+            const theme = document.getElementById('configColorTheme').value;
+            const root = document.documentElement;
+            
+            const themes = {
+                orange: '#ff6b35',
+                blue: '#3498db',
+                green: '#00d9a3',
+                purple: '#9b59b6'
+            };
+            
+            root.style.setProperty('--accent-orange', themes[theme] || themes.orange);
+        }
+
+        // Vista previa de ticket
+        function vistaPreviaTicket() {
+            const config = JSON.parse(localStorage.getItem('russos_config') || '{}');
+            const nombre = config.nombre || 'Russos Distribution';
+            const rif = config.rif || '';
+            const telefono = config.telefono || '';
+            const direccion = config.direccion || '';
+            
+            const ticketHTML = `
+                <div style="font-family: monospace; width: ${config.paperSize || '80'}mm; padding: 10px; background: white; color: black;">
+                    <div style="text-align: center; margin-bottom: 10px;">
+                        <div style="font-size: 18px; font-weight: bold;">${nombre}</div>
+                        ${rif ? `<div>RIF: ${rif}</div>` : ''}
+                        ${telefono ? `<div>Tel: ${telefono}</div>` : ''}
+                        ${direccion ? `<div>${direccion}</div>` : ''}
+                    </div>
+                    <div style="border-top: 1px dashed black; border-bottom: 1px dashed black; padding: 10px 0; margin: 10px 0;">
+                        <div>Fecha: ${new Date().toLocaleDateString()}</div>
+                        <div>Hora: ${new Date().toLocaleTimeString()}</div>
+                        <div>Cliente: Ejemplo Cliente</div>
+                    </div>
+                    <div style="margin: 10px 0;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>2x Corona</span>
+                            <span>XCG 70.00</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>1x Heineken</span>
+                            <span>XCG 35.00</span>
+                        </div>
+                    </div>
+                    <div style="border-top: 1px dashed black; padding-top: 10px; margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 16px; font-weight: bold;">
+                            <span>TOTAL:</span>
+                            <span>XCG 105.00</span>
+                        </div>
+                    </div>
+                    <div style="text-align: center; margin-top: 10px; font-size: 12px;">
+                        ¡Gracias por su compra!
+                    </div>
+                </div>
+            `;
+            
+            const ventana = window.open('', 'Vista Previa', 'width=400,height=600');
+            ventana.document.write(ticketHTML);
+        }
+
+        // Sincronizar manualmente
+        async function sincronizarManual() {
+            if (!window.isOnline) {
+                alert('❌ No hay conexión a internet');
+                return;
+            }
+            
+            if (!window.currentUser) {
+                alert('❌ Debes estar conectado para sincronizar');
+                return;
+            }
+            
+            const syncBtn = event.target;
+            syncBtn.disabled = true;
+            syncBtn.textContent = '🔄 Sincronizando...';
+            
+            try {
+                // Sincronizar ventas
+                const ventas = JSON.parse(localStorage.getItem('russos_ventas') || '[]');
+                const ventasNoSync = ventas.filter(v => !v.synced);
+                
+                for (const venta of ventasNoSync) {
+                    await window.firebaseModules.addDoc(
+                        window.firebaseModules.collection(window.firebaseDb, 'ventas'),
+                        {
+                            ...venta,
+                            userId: window.currentUser.uid,
+                            timestamp: window.firebaseModules.serverTimestamp()
+                        }
+                    );
+                    venta.synced = true;
+                }
+                
+                localStorage.setItem('russos_ventas', JSON.stringify(ventas));
+                
+                // Sincronizar productos
+                const productos = getProductos();
+                await window.firebaseModules.setDoc(
+                    window.firebaseModules.doc(window.firebaseDb, 'inventario', window.currentUser.uid),
+                    { productos: productos, lastUpdate: window.firebaseModules.serverTimestamp() }
+                );
+                
+                alert('✅ Sincronización completada');
+                document.getElementById('syncStatus').textContent = '☁️ Sincronizado ' + new Date().toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Error sincronizando:', error);
+                alert('❌ Error al sincronizar: ' + error.message);
+            } finally {
+                syncBtn.disabled = false;
+                syncBtn.textContent = '🔄 Sincronizar Ahora';
+            }
+        }
+
+        // Función para sincronizar datos pendientes (llamada automáticamente cuando hay conexión)
+        window.syncPendingData = async function() {
+            if (!window.currentUser || !window.isOnline) return;
+            
+            try {
+                const config = JSON.parse(localStorage.getItem('russos_config') || '{}');
+                if (config.autoSync === false) return; // Sincronización desactivada
+                
+                const ventas = JSON.parse(localStorage.getItem('russos_ventas') || '[]');
+                const ventasNoSync = ventas.filter(v => !v.synced);
+                
+                if (ventasNoSync.length > 0) {
+                    console.log(`🔄 Sincronizando ${ventasNoSync.length} ventas pendientes...`);
+                    
+                    for (const venta of ventasNoSync) {
+                        await window.firebaseModules.addDoc(
+                            window.firebaseModules.collection(window.firebaseDb, 'ventas'),
+                            {
+                                ...venta,
+                                userId: window.currentUser.uid,
+                                timestamp: window.firebaseModules.serverTimestamp()
+                            }
+                        );
+                        venta.synced = true;
+                    }
+                    
+                    localStorage.setItem('russos_ventas', JSON.stringify(ventas));
+                    console.log('✅ Ventas sincronizadas');
+                }
+            } catch (error) {
+                console.error('Error en sincronización automática:', error);
+            }
+        };
+
+        // Buscar productos en admin
+        function buscarProductosAdmin() {
+            renderAdminProducts();
         }
 
         // NO llamar init() automáticamente - se llama cuando el usuario hace login
